@@ -30,7 +30,7 @@ class Trader:
                 best_ask, best_ask_amount = list(order_depth.sell_orders.items())[0]
                 if int(best_ask) < acceptable_price:
                     print("BUY", str(-best_ask_amount) + "x", best_ask)
-                    orders.append(Order(product, best_ask, -best_ask_amount-1))
+                    orders.append(Order(product, int((best_ask+acceptable_price)/2), -(best_ask_amount+2)))
     
             if len(order_depth.buy_orders) != 0:
                 # Max bid price is the first one
