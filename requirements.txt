@@ -3,3 +3,4 @@ numpy
 jsonpickle
 prosperity2bt
 matplotlib
+ipykernel
