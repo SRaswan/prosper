@@ -4,10 +4,9 @@ import json
 import collections
 import copy
 
-from collections import defaultdict
 import numpy as np
 
-empty_dict = {'AMETHYSTS' : 0, 'BANANAS' : 0, 'COCONUTS' : 0, 'PINA_COLADAS' : 0, 'BERRIES' : 0, 'DIVING_GEAR' : 0, 'DIP' : 0, 'BAGUETTE': 0, 'UKULELE' : 0, 'PICNIC_BASKET' : 0}
+empty_dict = {'AMETHYSTS' : 0, 'STARFRUIT' : 0}
 
 
 class Logger:
@@ -28,7 +27,7 @@ class Logger:
             "",
         ]))
 
-        # We truncate state.traderData, trader_data, and self.logs to the same max. length to fit the log limit
+        # We truncate state.traderData, trader_data, and self.logs to the same max. length to fit the log self.POSITION_LIMIT[product]
         max_item_length = (self.max_log_length - base_length) // 3
 
         print(self.to_json([
@@ -118,17 +117,11 @@ logger = Logger()
 
 class Trader:
     position = copy.deepcopy(empty_dict)
+    sf_cache = []
+    ma_cache = 0
+    sf_dim = 2
 
-    POSITION_LIMIT = {'AMETHYSTS' : 20, 'BANANAS' : 20, 'COCONUTS' : 600, 'PINA_COLADAS' : 300, 'BERRIES' : 250, 'DIVING_GEAR' : 50, 'DIP' : 300, 'BAGUETTE': 150, 'UKULELE' : 70, 'PICNIC_BASKET' : 70}
-
-    def goodprice(self, order_depth):
-        goodprice = 10
-        if len(order_depth.sell_orders) != 0 and len(order_depth.buy_orders) != 0:
-            sellprice = sum(q * p for q, p in order_depth.sell_orders.items()) / sum(order_depth.sell_orders.values())
-            buyprice = sum(q * -p for q, p in order_depth.buy_orders.items()) / -sum(order_depth.buy_orders.values())
-            midprice = (sellprice+buyprice) / 2
-            goodprice = midprice
-        return goodprice
+    POSITION_LIMIT = {'AMETHYSTS' : 20, 'STARFRUIT' : 20}
     
     def values_extract(self, order_dict, buy=0):
         tot_vol = 0
@@ -145,14 +138,14 @@ class Trader:
         
         return tot_vol, best_val
     
-    def compute_orders_pearls(self, product, order_depth, acc_bid, acc_ask):
+    def compute_orders_amethysts(self, product, order_depth, acc_bid, acc_ask):
         orders: list[Order] = []
 
         osell = collections.OrderedDict(sorted(order_depth.sell_orders.items()))
         obuy = collections.OrderedDict(sorted(order_depth.buy_orders.items(), reverse=True))
 
-        sell_vol, best_sell_pr = self.values_extract(osell)
-        buy_vol, best_buy_pr = self.values_extract(obuy, 1)
+        _, best_sell_pr = self.values_extract(osell)
+        _, best_buy_pr = self.values_extract(obuy, 1)
 
         cpos = self.position[product]
 
@@ -166,30 +159,24 @@ class Trader:
                 assert(order_for >= 0)
                 orders.append(Order(product, ask, order_for))
 
-        mprice_actual = (best_sell_pr + best_buy_pr)/2
-        mprice_ours = (acc_bid+acc_ask)/2
-
         undercut_buy = best_buy_pr + 1
         undercut_sell = best_sell_pr - 1
 
         bid_pr = min(undercut_buy, acc_bid-1) # we will shift this by 1 to beat this price
         sell_pr = max(undercut_sell, acc_ask+1)
         pp = "poo"
+
+        num = min(40, self.POSITION_LIMIT[product] - cpos)
         if (cpos < self.POSITION_LIMIT[product]) and (self.position[product] < 0):
-            num = min(40, self.POSITION_LIMIT[product] - cpos)
             orders.append(Order(product, min(undercut_buy + 1, acc_bid-1), num))
             cpos += num
 
         if (cpos < self.POSITION_LIMIT[product]) and (self.position[product] > 15):
-            num = min(40, self.POSITION_LIMIT[product] - cpos)
             orders.append(Order(product, min(undercut_buy - 1, acc_bid-1), num))
-            pp = "JEUE"
             cpos += num
 
         if cpos < self.POSITION_LIMIT[product]:
-            num = min(40, self.POSITION_LIMIT[product] - cpos)
             orders.append(Order(product, bid_pr, num))
-            pp = "guapo" + str(self.position)
             cpos += num
         
         cpos = self.position[product]
@@ -202,30 +189,105 @@ class Trader:
                 assert(order_for <= 0)
                 orders.append(Order(product, bid, order_for))
 
+        num = max(-40, -self.POSITION_LIMIT[product]-cpos)
         if (cpos > -self.POSITION_LIMIT[product]) and (self.position[product] > 0):
-            num = max(-40, -self.POSITION_LIMIT[product]-cpos)
             orders.append(Order(product, max(undercut_sell-1, acc_ask+1), num))
             cpos += num
 
         if (cpos > -self.POSITION_LIMIT[product]) and (self.position[product] < -15):
-            num = max(-40, -self.POSITION_LIMIT[product]-cpos)
             orders.append(Order(product, max(undercut_sell+1, acc_ask+1), num))
             cpos += num
 
         if cpos > -self.POSITION_LIMIT[product]:
-            num = max(-40, -self.POSITION_LIMIT[product]-cpos)
             orders.append(Order(product, sell_pr, num))
             cpos += num
 
+        return orders, ""
+    
+    def calc_next_price_starfruit(self):
+        ar_coef = -0.5
+        diff = self.sf_cache[-1] - self.sf_cache[-2]
+        return int(round((self.sf_cache[-1] + diff * ar_coef) * 2) / 2)
+    
+    """def calc_next_price_starfruit(self):
+        ma_coef = -0.7096
+        error = self.sf_cache[-1] - self.ma_cache
+        return int(round((self.sf_cache[-1] + error * ma_coef) * 2) / 2)"""
+    
+    def compute_orders_starfruit(self, product, order_depth, acc_bid, acc_ask):
+        orders: list[Order] = []
+
+        osell = collections.OrderedDict(sorted(order_depth.sell_orders.items()))
+        obuy = collections.OrderedDict(sorted(order_depth.buy_orders.items(), reverse=True))
+
+        sell_vol, best_sell_pr = self.values_extract(osell)
+        buy_vol, best_buy_pr = self.values_extract(obuy, 1)
+
+        cpos = self.position[product]
+
+        for ask, vol in osell.items():
+            if ((ask <= acc_bid) or ((self.position[product]<0) and (ask == acc_bid+1))) and cpos < self.POSITION_LIMIT[product]:
+                order_for = min(-vol, self.POSITION_LIMIT[product] - cpos)
+                cpos += order_for
+                assert(order_for >= 0)
+                orders.append(Order(product, ask, order_for))
+
+        undercut_buy = best_buy_pr + 1
+        undercut_sell = best_sell_pr - 1
+
+        bid_pr = min(undercut_buy, acc_bid) # we will shift this by 1 to beat this price
+        sell_pr = max(undercut_sell, acc_ask)
+
+        if cpos < self.POSITION_LIMIT[product]:
+            num = min(40, self.POSITION_LIMIT[product] - cpos)
+            orders.append(Order(product, bid_pr, num))
+            cpos += num
+        
+        cpos = self.position[product]
+        
+        for bid, vol in obuy.items():
+            if ((bid >= acc_ask) or ((self.position[product]>0) and (bid+1 == acc_ask))) and cpos > -self.POSITION_LIMIT[product]:
+                order_for = max(-vol, -self.POSITION_LIMIT[product]-cpos)
+                # order_for is a negative number denoting how much we will sell
+                cpos += order_for
+                assert(order_for <= 0)
+                orders.append(Order(product, bid, order_for))
+
+        pp = ""
+        if cpos > -self.POSITION_LIMIT[product]:
+            num = max(-40, -self.POSITION_LIMIT[product]-cpos)
+            orders.append(Order(product, sell_pr, num))
+            pp = "selling"
+            cpos += num
+
         return orders, pp
+
         
     def run(self, state: TradingState) -> tuple[dict[Symbol, list[Order]], int, str]:
         conversions = 0
         trader_data = ""
-        pos = {}
         result = {}
-        acc_bid = {'AMETHYSTS' : 10000} # we want to buy at slightly below
-        acc_ask = {'AMETHYSTS' : 10000} 
+
+        if len(self.sf_cache) == self.sf_dim:
+            self.sf_cache.pop(0)
+
+        _, bs_sf = self.values_extract(collections.OrderedDict(sorted(state.order_depths['STARFRUIT'].sell_orders.items())))
+        _, bb_sf = self.values_extract(collections.OrderedDict(sorted(state.order_depths['STARFRUIT'].buy_orders.items(), reverse=True)), 1)
+        self.sf_cache.append((bs_sf + bb_sf) / 2)
+
+        INF = 1e9
+        sf_lb = -INF
+        sf_ub = INF
+        pp = ""
+        if len(self.sf_cache) == self.sf_dim:
+            next_price = self.calc_next_price_starfruit()
+            self.ma_cache = next_price
+            sf_lb = next_price - 1
+            sf_ub = next_price + 1
+            pp = next_price
+
+        acc_bid = {'AMETHYSTS' : 10_000, 'STARFRUIT' : sf_lb} # we want to buy at slightly below
+        acc_ask = {'AMETHYSTS' : 10_000, 'STARFRUIT' : sf_ub} 
         
         for product in self.position.keys():
             self.position[product] = state.position.get(product, 0)
@@ -234,17 +296,17 @@ class Trader:
         print("traderData: " + state.traderData)
         print("Observations: " + str(state.observations))
         result = {}
-        pp = ""
         for product in state.order_depths:
             order_depth: OrderDepth = state.order_depths[product]
             orders: List[Order] = []
             if (product == 'AMETHYSTS'):
-                orders, pp = self.compute_orders_pearls(product, order_depth, acc_bid[product], acc_ask[product])
-            
+                orders, pp = self.compute_orders_amethysts(product, order_depth, acc_bid[product], acc_ask[product])
+            elif (product == 'STARFRUIT'):
+                orders, pp = self.compute_orders_starfruit(product, order_depth, acc_bid[product], acc_ask[product])
             result[product] = orders
     
     
-        traderData = pp # String value holding Trader state data required. It will be delivered as TradingState.traderData on next execution.
+        traderData = str(pp) # String value holding Trader state data required. It will be delivered as TradingState.traderData on next execution.
         
         logger.flush(state, result, conversions, trader_data)
         return result, conversions, traderData
