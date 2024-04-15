@@ -262,6 +262,11 @@ class Trader:
 
         return orders, pp
 
+    def calc_next_price_orchids(self):
+        ar_coef = -0.5
+        diff = self.sf_cache[-1] - self.sf_cache[-2]
+        return int(round((self.sf_cache[-1] + diff * ar_coef) * 2) / 2)
+
     def compute_orders_orchids(self, product, order_depth, acc_bid, acc_ask, conversionObservations):
         orders: list[Order] = []
 
@@ -276,43 +281,31 @@ class Trader:
         buy_vol, best_buy_pr = self.values_extract(obuy, 1)
 
         cpos = self.position[product]
+        duckcpos = self.position[product]
 
-        for ask, vol in osell.items():
-            if ((ask <= acc_bid) or ((self.position[product]<0) and (ask == acc_bid+1))) and cpos < self.POSITION_LIMIT[product]:
-                order_for = min(-vol, self.POSITION_LIMIT[product] - cpos)
-                cpos += order_for
-                assert(order_for >= 0)
-                orders.append(Order(product, ask, order_for))
+        mid_price['ORCHIDS'] = (best_sell_pr + best_buy_pr)/2
 
-        undercut_buy = best_buy_pr + 1
-        undercut_sell = best_sell_pr - 1
+        res1 = mid_price['ORCHIDS']+transportFee+exportTar - mid_price['DUCKORCHIDS']
+        res2 = mid_price['ORCHIDS'] - mid_price['DUCKORCHIDS']+transportFee+importTar
 
-        bid_pr = min(undercut_buy, acc_bid) # we will shift this by 1 to beat this price
-        sell_pr = max(undercut_sell, acc_ask)
+        if res > trade_at:
+            vol = self.position['ORCHIDS'] + self.POSITION_LIMIT['ORCHIDS']
+            if vol > 0:
+                orders['ORCHIDS'].append(Order('ORCHIDS', worst_buy['ORCHIDS'], -vol))
+        elif res < -trade_at:
+            vol = self.POSITION_LIMIT['ORCHIDS'] - self.position['ORCHIDS']
+            if vol > 0:
+                orders['ORCHIDS'].append(Order('ORCHIDS', worst_sell['ORCHIDS'], vol))
+        elif res < close_at and self.position['ORCHIDS'] < 0:
+            vol = -self.position['ORCHIDS']
+            if vol > 0:
+                orders['ORCHIDS'].append(Order('ORCHIDS', worst_sell['ORCHIDS'], vol))
+        elif res > -close_at and self.position['ORCHIDS'] > 0:
+            vol = self.position['ORCHIDS']
+            if vol > 0:
+                orders['ORCHIDS'].append(Order('ORCHIDS', worst_buy['ORCHIDS'], -vol))
 
-        if cpos < self.POSITION_LIMIT[product]:
-            num = min(40, self.POSITION_LIMIT[product] - cpos)
-            orders.append(Order(product, bid_pr, num))
-            cpos += num
-        
-        cpos = self.position[product]
-        
-        for bid, vol in obuy.items():
-            if ((bid >= acc_ask) or ((self.position[product]>0) and (bid+1 == acc_ask))) and cpos > -self.POSITION_LIMIT[product]:
-                order_for = max(-vol, -self.POSITION_LIMIT[product]-cpos)
-                # order_for is a negative number denoting how much we will sell
-                cpos += order_for
-                assert(order_for <= 0)
-                orders.append(Order(product, bid, order_for))
-
-        pp = ""
-        if cpos > -self.POSITION_LIMIT[product]:
-            num = max(-40, -self.POSITION_LIMIT[product]-cpos)
-            orders.append(Order(product, sell_pr, num))
-            pp = "selling"
-            cpos += num
-
-        return orders, pp
+        return orders
 
         
     def run(self, state: TradingState) -> tuple[dict[Symbol, list[Order]], int, str]:
@@ -331,12 +324,7 @@ class Trader:
         sf_lb = -INF
         sf_ub = INF
         pp = ""
-        if len(self.sf_cache) == self.sf_dim:
-            next_price = self.calc_next_price_starfruit()
-            self.ma_cache = next_price
-            sf_lb = next_price - 1
-            sf_ub = next_price + 1
-            pp = next_price
+
 
         acc_bid = {'AMETHYSTS' : 10_000, 'STARFRUIT' : sf_lb} # we want to buy at slightly below
         acc_ask = {'AMETHYSTS' : 10_000, 'STARFRUIT' : sf_ub} 
@@ -354,8 +342,20 @@ class Trader:
             if (product == 'AMETHYSTS'):
                 orders, pp = self.compute_orders_amethysts(product, order_depth, acc_bid[product], acc_ask[product])
             elif (product == 'STARFRUIT'):
+                if len(self.sf_cache) == self.sf_dim:
+                    next_price = self.calc_next_price_starfruit()
+                    self.ma_cache = next_price
+                    sf_lb = next_price - 1
+                    sf_ub = next_price + 1
+                    pp = next_price
                 orders, pp = self.compute_orders_starfruit(product, order_depth, acc_bid[product], acc_ask[product])
             elif (product == 'ORCHIDS'):
+                if len(self.sf_cache) == self.sf_dim:
+                    next_price = self.calc_next_price_orchids() #DO THIS BRUH
+                    self.ma_cache = next_price
+                    sf_lb = next_price - 1
+                    sf_ub = next_price + 1
+                    pp = next_price
                 orders, pp = self.compute_orders_orchids(product, order_depth, acc_bid[product], acc_ask[product], state.observations.conversionObservations)
             result[product] = orders
     
