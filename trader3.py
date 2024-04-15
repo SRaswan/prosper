@@ -121,7 +121,7 @@ class Trader:
     ma_cache = 0
     sf_dim = 2
 
-    POSITION_LIMIT = {'AMETHYSTS' : 20, 'STARFRUIT' : 20}
+    POSITION_LIMIT = {'AMETHYSTS' : 20, 'STARFRUIT' : 20, 'STARFRUIT' : 100}
     
     def values_extract(self, order_dict, buy=0):
         tot_vol = 0
@@ -262,11 +262,15 @@ class Trader:
 
         return orders, pp
 
-    def compute_orders_orchids(self, product, order_depth, observations, acc_bid, acc_ask):
+    def compute_orders_orchids(self, product, order_depth, acc_bid, acc_ask, conversionObservations):
         orders: list[Order] = []
 
         osell = collections.OrderedDict(sorted(order_depth.sell_orders.items()))
         obuy = collections.OrderedDict(sorted(order_depth.buy_orders.items(), reverse=True))
+
+        transportFee = conversionObservations.transportFees
+        exportTar = conversionObservations.exportTariff
+        importTar = conversionObservations.importTariff
 
         sell_vol, best_sell_pr = self.values_extract(osell)
         buy_vol, best_buy_pr = self.values_extract(obuy, 1)
@@ -351,6 +355,8 @@ class Trader:
                 orders, pp = self.compute_orders_amethysts(product, order_depth, acc_bid[product], acc_ask[product])
             elif (product == 'STARFRUIT'):
                 orders, pp = self.compute_orders_starfruit(product, order_depth, acc_bid[product], acc_ask[product])
+            elif (product == 'ORCHIDS'):
+                orders, pp = self.compute_orders_orchids(product, order_depth, acc_bid[product], acc_ask[product], state.observations.conversionObservations)
             result[product] = orders
     
     
