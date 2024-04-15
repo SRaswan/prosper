@@ -281,9 +281,9 @@ class Trader:
         buy_vol, best_buy_pr = self.values_extract(obuy, 1)
 
         cpos = self.position[product]
-        duckcpos = self.position[product]
-
-        mid_price['ORCHIDS'] = (best_sell_pr + best_buy_pr)/2
+        duckcpos = #????
+        
+        currPrice = duckPrice+transportFee+importTar #FILL THIS OUT
 
         res1 = mid_price['ORCHIDS']+transportFee+exportTar - mid_price['DUCKORCHIDS']
         res2 = mid_price['ORCHIDS'] - mid_price['DUCKORCHIDS']+transportFee+importTar
@@ -325,6 +325,12 @@ class Trader:
         sf_ub = INF
         pp = ""
 
+        if len(self.sf_cache) == self.sf_dim:
+            next_price = self.calc_next_price_starfruit()
+            self.ma_cache = next_price
+            sf_lb = next_price - 1
+            sf_ub = next_price + 1
+            pp = next_price
 
         acc_bid = {'AMETHYSTS' : 10_000, 'STARFRUIT' : sf_lb} # we want to buy at slightly below
         acc_ask = {'AMETHYSTS' : 10_000, 'STARFRUIT' : sf_ub} 
@@ -342,20 +348,9 @@ class Trader:
             if (product == 'AMETHYSTS'):
                 orders, pp = self.compute_orders_amethysts(product, order_depth, acc_bid[product], acc_ask[product])
             elif (product == 'STARFRUIT'):
-                if len(self.sf_cache) == self.sf_dim:
-                    next_price = self.calc_next_price_starfruit()
-                    self.ma_cache = next_price
-                    sf_lb = next_price - 1
-                    sf_ub = next_price + 1
-                    pp = next_price
                 orders, pp = self.compute_orders_starfruit(product, order_depth, acc_bid[product], acc_ask[product])
             elif (product == 'ORCHIDS'):
-                if len(self.sf_cache) == self.sf_dim:
-                    next_price = self.calc_next_price_orchids() #DO THIS BRUH
-                    self.ma_cache = next_price
-                    sf_lb = next_price - 1
-                    sf_ub = next_price + 1
-                    pp = next_price
+
                 orders, pp = self.compute_orders_orchids(product, order_depth, acc_bid[product], acc_ask[product], state.observations.conversionObservations)
             result[product] = orders
     
