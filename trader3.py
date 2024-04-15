@@ -262,6 +262,54 @@ class Trader:
 
         return orders, pp
 
+    def compute_orders_orchids(self, product, order_depth, observations, acc_bid, acc_ask):
+        orders: list[Order] = []
+
+        osell = collections.OrderedDict(sorted(order_depth.sell_orders.items()))
+        obuy = collections.OrderedDict(sorted(order_depth.buy_orders.items(), reverse=True))
+
+        sell_vol, best_sell_pr = self.values_extract(osell)
+        buy_vol, best_buy_pr = self.values_extract(obuy, 1)
+
+        cpos = self.position[product]
+
+        for ask, vol in osell.items():
+            if ((ask <= acc_bid) or ((self.position[product]<0) and (ask == acc_bid+1))) and cpos < self.POSITION_LIMIT[product]:
+                order_for = min(-vol, self.POSITION_LIMIT[product] - cpos)
+                cpos += order_for
+                assert(order_for >= 0)
+                orders.append(Order(product, ask, order_for))
+
+        undercut_buy = best_buy_pr + 1
+        undercut_sell = best_sell_pr - 1
+
+        bid_pr = min(undercut_buy, acc_bid) # we will shift this by 1 to beat this price
+        sell_pr = max(undercut_sell, acc_ask)
+
+        if cpos < self.POSITION_LIMIT[product]:
+            num = min(40, self.POSITION_LIMIT[product] - cpos)
+            orders.append(Order(product, bid_pr, num))
+            cpos += num
+        
+        cpos = self.position[product]
+        
+        for bid, vol in obuy.items():
+            if ((bid >= acc_ask) or ((self.position[product]>0) and (bid+1 == acc_ask))) and cpos > -self.POSITION_LIMIT[product]:
+                order_for = max(-vol, -self.POSITION_LIMIT[product]-cpos)
+                # order_for is a negative number denoting how much we will sell
+                cpos += order_for
+                assert(order_for <= 0)
+                orders.append(Order(product, bid, order_for))
+
+        pp = ""
+        if cpos > -self.POSITION_LIMIT[product]:
+            num = max(-40, -self.POSITION_LIMIT[product]-cpos)
+            orders.append(Order(product, sell_pr, num))
+            pp = "selling"
+            cpos += num
+
+        return orders, pp
+
         
     def run(self, state: TradingState) -> tuple[dict[Symbol, list[Order]], int, str]:
         conversions = 0
