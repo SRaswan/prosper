@@ -305,7 +305,7 @@ class Trader:
             if vol > 0:
                 orders['ORCHIDS'].append(Order('ORCHIDS', worst_buy['ORCHIDS'], -vol))
 
-        return orders
+        return orders, conversions
 
         
     def run(self, state: TradingState) -> tuple[dict[Symbol, list[Order]], int, str]:
